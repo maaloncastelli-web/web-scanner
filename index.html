@@ -2,383 +2,484 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Scanner Pro V2 - Real Time</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#000000">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Scanner App Mobile</title>
+    
     <script src="https://docs.opencv.org/4.7.0/opencv.js" async onload="onOpenCvReady();"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <style>
-        body { font-family: 'Segoe UI', sans-serif; margin: 0; background: #121212; color: white; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
-        
-        /* Contenedor de Video y Overlay */
-        #camera-container { 
-            position: relative; 
-            flex: 1; 
-            width: 100%; 
-            background: #000; 
-            overflow: hidden; 
-        }
-        
-        video { 
-            width: 100%; 
-            height: 100%; 
-            object-fit: cover; 
-            display: block; 
-        }
-        
-        /* Canvas superpuesto para dibujar líneas verdes */
-        #canvasOverlay {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            pointer-events: none; /* Permite clicks a través */
-        }
 
-        /* Área de controles inferior */
-        #ui-layer {
-            background: #1e1e1e;
-            padding: 15px;
+    <style>
+        /* Reset y Base */
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            margin: 0; padding: 0; 
+            background: #000; 
+            color: white; 
+            height: 100dvh; /* Altura dinámica real del móvil */
+            width: 100vw;
+            overflow: hidden;
             display: flex;
             flex-direction: column;
-            gap: 10px;
-            z-index: 10;
         }
 
+        /* Área de Cámara (Viewfinder) */
+        #viewport {
+            position: relative;
+            flex: 1;
+            width: 100%;
+            overflow: hidden;
+            background: #000;
+        }
+
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover; /* Llena la pantalla recortando excesos */
+            display: block;
+        }
+
+        #canvasOverlay {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            pointer-events: none;
+        }
+
+        /* Flash Effect */
+        #flash {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: white; opacity: 0; pointer-events: none; z-index: 50;
+            transition: opacity 0.1s ease-out;
+        }
+
+        /* UI Layer (HUD) */
+        #hud {
+            position: absolute;
+            bottom: 0; left: 0; width: 100%;
+            background: linear-gradient(to top, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.4) 60%, transparent 100%);
+            padding-bottom: env(safe-area-inset-bottom, 20px); /* iPhone X+ safe area */
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            z-index: 20;
+        }
+
+        /* Galería Horizontal */
         #gallery {
             display: flex;
-            gap: 10px;
+            gap: 12px;
             overflow-x: auto;
-            padding-bottom: 10px;
-            min-height: 80px;
+            padding: 0 20px;
+            scrollbar-width: none; /* Firefox */
+        }
+        #gallery::-webkit-scrollbar { display: none; } /* Chrome/Safari */
+
+        .thumb-wrapper {
+            position: relative;
+            flex: 0 0 auto;
+            width: 60px; height: 80px;
+            border-radius: 6px;
+            overflow: hidden;
+            border: 2px solid rgba(255,255,255,0.3);
+            transition: transform 0.2s;
+        }
+        .thumb-wrapper img { width: 100%; height: 100%; object-fit: cover; }
+        .thumb-count {
+            position: absolute; top: 0; right: 0;
+            background: #ff3b30; color: white;
+            font-size: 10px; padding: 2px 5px;
+            border-bottom-left-radius: 4px;
         }
 
-        .thumb-container { position: relative; }
-        .thumbnail { height: 80px; border-radius: 4px; border: 1px solid #444; }
-        .badge { position: absolute; top: -5px; right: -5px; background: red; color: white; border-radius: 50%; width: 20px; height: 20px; font-size: 12px; display: flex; align-items: center; justify-content: center; cursor: pointer;}
+        /* Controles Principales */
+        .controls-row {
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            padding: 10px 20px 30px 20px;
+        }
 
-        .controls { display: flex; justify-content: space-between; align-items: center; }
-
-        button {
-            padding: 12px 20px;
+        /* Botones Estilizados */
+        .btn-icon {
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
             border: none;
-            border-radius: 50px;
-            font-weight: bold;
-            font-size: 14px;
+            color: white;
+            width: 44px; height: 44px;
+            border-radius: 50%;
+            display: flex; justify-content: center; align-items: center;
+            font-size: 20px;
             cursor: pointer;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
         }
+        .btn-icon:active { background: rgba(255,255,255,0.3); }
 
-        .btn-capture { 
-            background: white; 
-            color: black; 
-            height: 60px; 
-            width: 60px; 
-            border-radius: 50%; 
-            border: 4px solid #ccc;
-            padding: 0; /* Override padding for circle */
+        .shutter-btn {
+            width: 72px; height: 72px;
+            border-radius: 50%;
+            border: 4px solid white;
+            background: transparent;
+            position: relative;
+            display: flex; justify-content: center; align-items: center;
+            cursor: pointer;
         }
-        .btn-capture:active { background: #ccc; transform: scale(0.95); }
+        .shutter-inner {
+            width: 60px; height: 60px;
+            background: white;
+            border-radius: 50%;
+            transition: transform 0.1s;
+        }
+        .shutter-btn:active .shutter-inner { transform: scale(0.9); background: #ddd; }
 
-        .btn-action { background: #007bff; color: white; }
-        .btn-pdf { background: #28a745; color: white; }
+        .btn-text {
+            background: #28a745;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 14px;
+            display: flex; align-items: center; gap: 6px;
+        }
 
         /* Loader */
         #loader {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.8); z-index: 99;
-            display: flex; justify-content: center; align-items: center;
-            flex-direction: column;
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: #000; z-index: 100;
+            display: flex; justify-content: center; align-items: center; flex-direction: column;
+            transition: opacity 0.5s;
         }
-        .spinner { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin-bottom: 15px;}
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .spinner {
+            width: 40px; height: 40px; border: 4px solid #333;
+            border-top: 4px solid #007aff; border-radius: 50%;
+            animation: spin 1s infinite linear;
+        }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+
+        /* Iconos SVG simples en CSS */
+        .icon-trash::before { content: '🗑️'; font-size: 18px; filter: grayscale(1); }
+        .icon-pdf::before { content: '📄'; }
     </style>
 </head>
 <body>
 
 <div id="loader">
     <div class="spinner"></div>
-    <div id="status-text">Cargando Motor de Procesamiento...</div>
+    <p style="margin-top: 20px; color: #888; font-size: 14px;">Iniciando Sistema...</p>
 </div>
 
-<div id="camera-container">
-    <video id="video" autoplay playsinline></video>
+<div id="viewport">
+    <video id="video" autoplay playsinline muted></video>
     <canvas id="canvasOverlay"></canvas>
+    <div id="flash"></div>
 </div>
 
-<div id="ui-layer">
+<div id="hud">
     <div id="gallery"></div>
-    <div class="controls">
-        <button class="btn-action" onclick="resetGallery()">Borrar</button>
-        <button class="btn-capture" onclick="triggerCapture()"></button>
-        <button class="btn-pdf" onclick="generatePDF()">Generar PDF <span id="count">(0)</span></button>
+
+    <div class="controls-row">
+        <button class="btn-icon icon-trash" onclick="resetGallery()"></button>
+        
+        <button class="shutter-btn" onclick="triggerCapture()">
+            <div class="shutter-inner"></div>
+        </button>
+
+        <button class="btn-text" onclick="generatePDF()">
+            <span>PDF</span>
+            <span id="pdf-badge" style="background:rgba(0,0,0,0.2); padding: 2px 6px; border-radius:10px; font-size:12px;">0</span>
+        </button>
     </div>
 </div>
 
 <canvas id="canvasProcess" style="display:none;"></canvas>
 
 <script>
-    let cvReady = false;
-    let video = document.getElementById('video');
-    let overlay = document.getElementById('canvasOverlay');
-    let ctxOverlay = overlay.getContext('2d');
-    
-    // Variables de estado
-    let stream = null;
-    let pages = [];
-    let isProcessing = false;
-    let currentContour = null; // Almacena el contorno detectado actual
-    
-    // Configuración de Downscaling para rendimiento
-    const PROCESS_WIDTH = 480; 
+    // --- Configuración y Estado ---
+    const CONFIG = {
+        processWidth: 480, // Downscale para detección rápida
+        outputQuality: 0.8
+    };
 
+    let state = {
+        cvReady: false,
+        stream: null,
+        pages: [], // Array de dataURLs
+        currentContour: null, // Puntos detectados
+        isCapturing: false
+    };
+
+    const els = {
+        video: document.getElementById('video'),
+        overlay: document.getElementById('canvasOverlay'),
+        ctxOverlay: document.getElementById('canvasOverlay').getContext('2d'),
+        flash: document.getElementById('flash'),
+        gallery: document.getElementById('gallery'),
+        badge: document.getElementById('pdf-badge'),
+        loader: document.getElementById('loader')
+    };
+
+    // --- Inicialización ---
     function onOpenCvReady() {
-        cvReady = true;
-        document.getElementById('status-text').innerText = "Iniciando Cámara...";
-        startCamera();
+        state.cvReady = true;
+        initCamera();
     }
 
-    async function startCamera() {
+    async function initCamera() {
         try {
+            // Pedimos resolución alta, preferimos cámara trasera
             const constraints = {
+                audio: false,
                 video: {
                     facingMode: 'environment',
                     width: { ideal: 1920 },
                     height: { ideal: 1080 }
                 }
             };
-            stream = await navigator.mediaDevices.getUserMedia(constraints);
-            video.srcObject = stream;
-            video.onloadedmetadata = () => {
-                video.play();
-                document.getElementById('loader').style.display = 'none';
-                // Iniciar bucle de detección
-                requestAnimationFrame(processVideoFrame);
+            
+            state.stream = await navigator.mediaDevices.getUserMedia(constraints);
+            els.video.srcObject = state.stream;
+            
+            els.video.onloadedmetadata = () => {
+                els.video.play();
+                els.loader.style.opacity = '0';
+                setTimeout(() => els.loader.style.display = 'none', 500);
+                
+                // Ajustar tamaño del overlay al video real renderizado
+                resizeOverlay();
+                window.addEventListener('resize', resizeOverlay);
+                
+                // Iniciar loop de detección
+                requestAnimationFrame(processLoop);
             };
         } catch (err) {
-            alert("Error de cámara: " + err.message);
+            alert("No se pudo acceder a la cámara. Asegúrate de estar en HTTPS.");
+            console.error(err);
         }
     }
 
-    // --- Bucle de Procesamiento en Tiempo Real ---
-    function processVideoFrame() {
-        if (!cvReady || video.paused || video.ended) {
-            requestAnimationFrame(processVideoFrame);
+    function resizeOverlay() {
+        els.overlay.width = els.video.videoWidth;
+        els.overlay.height = els.video.videoHeight;
+    }
+
+    // --- Core: Detección en Tiempo Real ---
+    function processLoop() {
+        if (!state.cvReady || els.video.paused || els.video.ended) {
+            requestAnimationFrame(processLoop);
             return;
         }
 
-        // 1. Configurar dimensiones
-        const vidW = video.videoWidth;
-        const vidH = video.videoHeight;
-        overlay.width = vidW;
-        overlay.height = vidH;
+        // 1. Setup básico
+        let cap = new cv.VideoCapture(els.video);
+        let src = new cv.Mat(els.video.videoHeight, els.video.videoWidth, cv.CV_8UC4);
+        cap.read(src);
 
-        // 2. Crear Mats (Matrices) para OpenCV
-        // Usamos un canvas oculto pequeño para procesar rápido
-        let cap = new cv.VideoCapture(video);
-        let src = new cv.Mat(vidH, vidW, cv.CV_8UC4);
-        cap.read(src); // Leer frame actual
-
+        // 2. Escalar para velocidad (downsample)
         let smallSrc = new cv.Mat();
-        let scale = PROCESS_WIDTH / vidW;
-        let smallHeight = vidH * scale;
-        
-        // Redimensionar para velocidad
-        cv.resize(src, smallSrc, new cv.Size(PROCESS_WIDTH, smallHeight));
+        let scale = CONFIG.processWidth / src.cols;
+        cv.resize(src, smallSrc, new cv.Size(CONFIG.processWidth, src.rows * scale));
 
-        // 3. Detectar Bordes (Pipeline)
-        let gray = new cv.Mat();
-        cv.cvtColor(smallSrc, gray, cv.COLOR_RGBA2GRAY);
-        cv.GaussianBlur(gray, gray, new cv.Size(5, 5), 0);
-        cv.Canny(gray, gray, 75, 200);
+        // 3. Procesamiento de imagen
+        cv.cvtColor(smallSrc, smallSrc, cv.COLOR_RGBA2GRAY);
+        cv.GaussianBlur(smallSrc, smallSrc, new cv.Size(5, 5), 0);
+        cv.Canny(smallSrc, smallSrc, 75, 200);
 
-        // 4. Encontrar Contornos
+        // 4. Encontrar contornos
         let contours = new cv.MatVector();
         let hierarchy = new cv.Mat();
-        cv.findContours(gray, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+        cv.findContours(smallSrc, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
-        // 5. Filtrar el mejor cuadrilátero
+        // 5. Filtrar cuadriláteros
         let maxArea = 0;
-        let bestApprox = null;
+        let foundContour = null;
 
         for (let i = 0; i < contours.size(); ++i) {
             let cnt = contours.get(i);
             let area = cv.contourArea(cnt);
-            if (area > 5000) { // area minima en la imagen pequeña
+            
+            // Área mínima para considerar documento
+            if (area > 5000) { 
                 let peri = cv.arcLength(cnt, true);
                 let approx = new cv.Mat();
                 cv.approxPolyDP(cnt, approx, 0.02 * peri, true);
                 
                 if (approx.rows === 4 && area > maxArea) {
                     maxArea = area;
-                    if(bestApprox) bestApprox.delete();
-                    bestApprox = approx; // Mantener referencia
+                    if(foundContour) foundContour.delete();
+                    foundContour = approx;
                 } else {
                     approx.delete();
                 }
             }
         }
 
-        // 6. Dibujar en Overlay (Escalando de vuelta al tamaño original)
-        ctxOverlay.clearRect(0, 0, vidW, vidH);
+        // 6. Dibujar resultado
+        els.ctxOverlay.clearRect(0, 0, els.overlay.width, els.overlay.height);
         
-        if (bestApprox) {
-            // Guardamos este contorno escalado para usarlo al capturar
-            // Necesitamos convertir coordinates de smallSrc a src original
+        if (foundContour) {
+            // Escalar puntos de vuelta al tamaño original
             let pts = [];
             for(let i=0; i<4; i++) {
                 pts.push({
-                    x: bestApprox.data32S[i*2] / scale,
-                    y: bestApprox.data32S[i*2+1] / scale
+                    x: foundContour.data32S[i*2] / scale,
+                    y: foundContour.data32S[i*2+1] / scale
                 });
             }
-            
-            // Actualizar variable global para el botón de captura
-            currentContour = pts;
+            state.currentContour = pts;
 
-            // Dibujar línea visual
-            ctxOverlay.beginPath();
-            ctxOverlay.lineWidth = 5;
-            ctxOverlay.strokeStyle = '#00ff00';
-            ctxOverlay.moveTo(pts[0].x, pts[0].y);
-            for(let i=1; i<4; i++) ctxOverlay.lineTo(pts[i].x, pts[i].y);
-            ctxOverlay.closePath();
-            ctxOverlay.stroke();
+            // Dibujar guía visual
+            els.ctxOverlay.beginPath();
+            els.ctxOverlay.lineWidth = 6;
+            els.ctxOverlay.strokeStyle = '#00e676'; // Material Green
+            els.ctxOverlay.moveTo(pts[0].x, pts[0].y);
+            for(let i=1; i<4; i++) els.ctxOverlay.lineTo(pts[i].x, pts[i].y);
+            els.ctxOverlay.closePath();
+            els.ctxOverlay.stroke();
+
+            // Relleno semitransparente para feedback positivo
+            els.ctxOverlay.fillStyle = 'rgba(0, 230, 118, 0.2)';
+            els.ctxOverlay.fill();
             
-            bestApprox.delete();
+            foundContour.delete();
         } else {
-            currentContour = null;
+            state.currentContour = null;
         }
 
-        // Limpieza Memoria
-        src.delete(); smallSrc.delete(); gray.delete(); 
+        // Limpieza de memoria
+        src.delete(); smallSrc.delete(); 
         contours.delete(); hierarchy.delete();
 
-        // Loop
-        requestAnimationFrame(processVideoFrame);
+        requestAnimationFrame(processLoop);
     }
 
-    // --- Captura y Procesamiento Final ---
+    // --- Captura y Procesamiento ---
     function triggerCapture() {
-        if (!currentContour) {
-            // Si no detecta, toma la foto completa
-             let canvas = document.createElement('canvas');
-             canvas.width = video.videoWidth;
-             canvas.height = video.videoHeight;
-             canvas.getContext('2d').drawImage(video, 0, 0);
-             processAndSave(cv.imread(canvas));
-             return;
-        }
+        if (state.isCapturing) return;
+        state.isCapturing = true;
 
-        // Tomar frame completo
+        // Feedback háptico y visual
+        if (navigator.vibrate) navigator.vibrate(50);
+        els.flash.style.opacity = '0.8';
+        setTimeout(() => els.flash.style.opacity = '0', 150);
+
+        // Capturar frame completo
         let canvas = document.createElement('canvas');
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        canvas.getContext('2d').drawImage(video, 0, 0);
+        canvas.width = els.video.videoWidth;
+        canvas.height = els.video.videoHeight;
+        canvas.getContext('2d').drawImage(els.video, 0, 0);
+        
         let src = cv.imread(canvas);
+        let dst = new cv.Mat();
 
-        // Preparar coordenadas para Warp
-        // Ordenar puntos: TL, TR, BR, BL
-        let pts = currentContour;
+        try {
+            if (state.currentContour) {
+                // WARP PERSPECTIVE
+                let pts = sortPoints(state.currentContour);
+                
+                // Calcular dimensiones destino
+                let width = Math.max(
+                    Math.hypot(pts[2].x - pts[3].x, pts[2].y - pts[3].y),
+                    Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y)
+                );
+                let height = Math.max(
+                    Math.hypot(pts[1].x - pts[2].x, pts[1].y - pts[2].y),
+                    Math.hypot(pts[0].x - pts[3].x, pts[0].y - pts[3].y)
+                );
+
+                let srcTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
+                    pts[0].x, pts[0].y, pts[1].x, pts[1].y,
+                    pts[2].x, pts[2].y, pts[3].x, pts[3].y
+                ]);
+                let dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
+                    0, 0, width, 0, width, height, 0, height
+                ]);
+
+                let M = cv.getPerspectiveTransform(srcTri, dstTri);
+                cv.warpPerspective(src, dst, M, new cv.Size(width, height));
+                
+                srcTri.delete(); dstTri.delete(); M.delete();
+            } else {
+                // Fallback: Usar imagen completa
+                src.copyTo(dst);
+            }
+
+            // APLICAR FILTRO FOTOCOPIA
+            applyScanFilter(dst);
+
+            // Guardar y mostrar
+            cv.imshow(canvas, dst);
+            const imgData = canvas.toDataURL('image/jpeg', CONFIG.outputQuality);
+            addPage(imgData);
+
+        } catch (e) {
+            console.error("Error en procesamiento", e);
+        } finally {
+            src.delete(); dst.delete();
+            state.isCapturing = false;
+        }
+    }
+
+    function sortPoints(pts) {
+        // Ordenar: TL, TR, BR, BL
         pts.sort((a,b) => a.y - b.y);
         let top = pts.slice(0,2).sort((a,b) => a.x - b.x);
         let bottom = pts.slice(2,4).sort((a,b) => a.x - b.x);
-        let ordered = [top[0], top[1], bottom[1], bottom[0]];
-
-        let widthA = Math.hypot(ordered[2].x - ordered[3].x, ordered[2].y - ordered[3].y);
-        let widthB = Math.hypot(ordered[1].x - ordered[0].x, ordered[1].y - ordered[0].y);
-        let maxWidth = Math.max(widthA, widthB);
-
-        let heightA = Math.hypot(ordered[1].x - ordered[2].x, ordered[1].y - ordered[2].y);
-        let heightB = Math.hypot(ordered[0].x - ordered[3].x, ordered[0].y - ordered[3].y);
-        let maxHeight = Math.max(heightA, heightB);
-
-        let srcTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
-            ordered[0].x, ordered[0].y, ordered[1].x, ordered[1].y,
-            ordered[2].x, ordered[2].y, ordered[3].x, ordered[3].y
-        ]);
-        let dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
-            0, 0, maxWidth, 0, maxWidth, maxHeight, 0, maxHeight
-        ]);
-
-        let M = cv.getPerspectiveTransform(srcTri, dstTri);
-        let dst = new cv.Mat();
-        cv.warpPerspective(src, dst, M, new cv.Size(maxWidth, maxHeight));
-
-        // Aplicar Efecto Fotocopia
-        applyPhotocopyEffect(dst);
-
-        src.delete(); srcTri.delete(); dstTri.delete(); M.delete();
+        return [top[0], top[1], bottom[1], bottom[0]];
     }
 
-    function applyPhotocopyEffect(mat) {
-        // 1. A Escala de Grises
+    function applyScanFilter(mat) {
         cv.cvtColor(mat, mat, cv.COLOR_RGBA2GRAY);
-        
-        // 2. Umbral Adaptativo (Adaptive Threshold)
-        // Esto es la magia de la "fotocopia": calcula el umbral localmente
-        // param 1: src, 2: dst, 3: maxVal, 4: metodo adaptativo, 5: tipo umbral, 6: block size, 7: constante
-        cv.adaptiveThreshold(mat, mat, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 15, 10);
-
-        processAndSave(mat);
+        // Filtro adaptativo para eliminar sombras y limpiar texto
+        cv.adaptiveThreshold(mat, mat, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 15, 12);
     }
 
-    function processAndSave(mat) {
-        // Mostrar en canvas temporal para exportar a base64
-        let canvas = document.createElement('canvas');
-        cv.imshow(canvas, mat);
-        let imgData = canvas.toDataURL('image/jpeg', 0.8);
+    // --- Gestión de Galería y PDF ---
+    function addPage(dataUrl) {
+        state.pages.push(dataUrl);
         
-        // Agregar a la galería
-        pages.push(imgData);
-        updateGalleryUI();
+        // Crear elemento UI
+        let div = document.createElement('div');
+        div.className = 'thumb-wrapper';
+        div.innerHTML = `<img src="${dataUrl}">`;
         
-        mat.delete(); // Limpiar
-        
-        // Animación visual de captura
-        video.style.opacity = 0.5;
-        setTimeout(() => video.style.opacity = 1, 100);
-    }
+        // Efecto visual de entrada
+        div.style.transform = 'scale(0)';
+        els.gallery.appendChild(div);
+        setTimeout(() => div.style.transform = 'scale(1)', 50);
 
-    // --- UI y PDF ---
-    function updateGalleryUI() {
-        let gal = document.getElementById('gallery');
-        let count = document.getElementById('count');
-        gal.innerHTML = '';
-        
-        pages.forEach((src, idx) => {
-            let div = document.createElement('div');
-            div.className = 'thumb-container';
-            div.innerHTML = `<img src="${src}" class="thumbnail"><div class="badge" onclick="removePage(${idx})">x</div>`;
-            gal.appendChild(div);
-        });
-        
-        count.innerText = `(${pages.length})`;
         // Scroll al final
-        gal.scrollLeft = gal.scrollWidth;
+        els.gallery.scrollTo({ left: els.gallery.scrollWidth, behavior: 'smooth' });
+        
+        updateCount();
     }
 
-    function removePage(idx) {
-        pages.splice(idx, 1);
-        updateGalleryUI();
+    function updateCount() {
+        els.badge.innerText = state.pages.length;
     }
 
     function resetGallery() {
-        if(confirm("¿Borrar todo?")) {
-            pages = [];
-            updateGalleryUI();
+        if(state.pages.length > 0 && confirm("¿Borrar todos los escaneos?")) {
+            state.pages = [];
+            els.gallery.innerHTML = '';
+            updateCount();
         }
     }
 
     async function generatePDF() {
-        if (pages.length === 0) return alert("Escanea algo primero.");
+        if (state.pages.length === 0) return alert("Captura al menos una página.");
+        
+        // Feedback visual
+        let originalText = document.querySelector('.btn-text span').innerText;
+        document.querySelector('.btn-text span').innerText = "Generando...";
         
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF();
 
-        for (let i = 0; i < pages.length; i++) {
-            let imgData = pages[i];
+        for (let i = 0; i < state.pages.length; i++) {
+            let imgData = state.pages[i];
             let img = new Image();
             img.src = imgData;
             await new Promise(r => img.onload = r);
@@ -390,7 +491,12 @@
             if (i > 0) doc.addPage();
             doc.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
         }
-        doc.save(`Scanner_${new Date().toISOString().slice(0,10)}.pdf`);
+        
+        // Nombre de archivo con fecha
+        const fileName = `Scan_${new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')}.pdf`;
+        doc.save(fileName);
+        
+        document.querySelector('.btn-text span').innerText = originalText;
     }
 </script>
 </body>
