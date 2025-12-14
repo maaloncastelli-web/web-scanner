@@ -2,8 +2,9 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Scanner Pro Web</title>
+    
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="onOpenCvReady();" type="text/javascript"></script>
     
@@ -14,66 +15,72 @@
             --bg: #0f172a;
             --surface: #1e293b;
             --text: #f8fafc;
+            /* Altura dinámica para corregir bug de Safari */
+            --app-height: 100dvh; 
         }
 
-        * { box-sizing: border-box; touch-action: none; user-select: none; }
+        * { box-sizing: border-box; touch-action: none; user-select: none; -webkit-tap-highlight-color: transparent; }
         
         body {
-            margin: 0;
-            padding: 0;
+            margin: 0; padding: 0;
             background-color: var(--bg);
             color: var(--text);
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            height: 100vh;
+            font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            height: var(--app-height);
+            width: 100vw;
             overflow: hidden;
             display: flex;
             flex-direction: column;
         }
 
-        /* --- UI Components --- */
+        /* --- Header --- */
         .app-header {
-            padding: 15px;
+            height: 60px;
+            padding: 0 15px;
             background: var(--surface);
             display: flex;
             justify-content: space-between;
             align-items: center;
             box-shadow: 0 2px 10px rgba(0,0,0,0.3);
-            z-index: 10;
+            z-index: 20;
+            flex-shrink: 0; /* Evita que el header se aplaste */
+            padding-top: env(safe-area-inset-top); /* Notch support */
         }
 
         .btn {
             background: var(--primary);
             color: white;
             border: none;
-            padding: 10px 20px;
+            padding: 8px 16px;
             border-radius: 8px;
             font-weight: 600;
             cursor: pointer;
             font-size: 14px;
         }
-        
         .btn.secondary { background: #475569; }
         .btn.accent { background: var(--accent); color: #000; }
 
-        /* --- Views Management --- */
+        /* --- Vistas --- */
         .view {
             flex: 1;
-            display: none; /* Hidden by default */
+            display: none;
             flex-direction: column;
             position: relative;
             width: 100%;
             height: 100%;
+            overflow: hidden;
         }
-
         .view.active { display: flex; }
 
-        /* --- Home/Gallery View --- */
+        /* --- Home: Galería --- */
         #gallery-grid {
             padding: 20px;
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
             gap: 15px;
             overflow-y: auto;
+            /* Espacio extra abajo para los botones flotantes */
+            padding-bottom: 120px; 
         }
 
         .thumb-card {
@@ -83,41 +90,48 @@
             position: relative;
             aspect-ratio: 1/1.4;
             border: 1px solid #334155;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
         }
-
         .thumb-card img { width: 100%; height: 100%; object-fit: cover; }
         
         .empty-state {
             position: absolute;
-            top: 50%; left: 50%;
+            top: 40%; left: 50%;
             transform: translate(-50%, -50%);
             text-align: center;
             color: #64748b;
+            width: 80%;
         }
 
+        /* Botones Flotantes (Home) */
         .fab-container {
             position: absolute;
             bottom: 30px;
-            right: 30px;
+            right: 20px;
             display: flex;
             gap: 15px;
+            /* Corrección clave para iPhone X/11/12/13/14/15 */
+            padding-bottom: env(safe-area-inset-bottom);
+            z-index: 30;
         }
-
         .fab {
-            width: 56px; height: 56px;
+            width: 60px; height: 60px;
             border-radius: 50%;
             border: none;
             background: var(--accent);
             color: #000;
-            font-size: 24px;
-            box-shadow: 0 4px 15px rgba(0,229,255, 0.4);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
+            font-size: 28px;
+            box-shadow: 0 4px 15px rgba(0,0,0, 0.4);
+            display: flex; align-items: center; justify-content: center;
         }
 
-        /* --- Camera View --- */
+        /* --- Cámara --- */
+        #video-container {
+            flex: 1;
+            position: relative;
+            background: black;
+            overflow: hidden;
+        }
         #video-feed {
             width: 100%;
             height: 100%;
@@ -126,22 +140,29 @@
         
         .camera-controls {
             position: absolute;
-            bottom: 40px;
+            bottom: 0;
+            left: 0;
             width: 100%;
+            padding: 20px;
+            /* Fondo degradado para legibilidad */
+            background: linear-gradient(to top, rgba(0,0,0,0.8), transparent);
             display: flex;
-            justify-content: center;
-            gap: 30px;
+            justify-content: space-around;
+            align-items: center;
+            /* SAFE AREA FIX */
+            padding-bottom: calc(20px + env(safe-area-inset-bottom));
         }
 
         .capture-btn {
-            width: 70px; height: 70px;
+            width: 72px; height: 72px;
             border-radius: 50%;
             border: 4px solid white;
-            background: transparent;
+            background: rgba(255,255,255,0.2);
+            transition: transform 0.1s;
         }
-        .capture-btn:active { background: white; }
+        .capture-btn:active { transform: scale(0.9); background: white; }
 
-        /* --- Crop/Edit View --- */
+        /* --- Editor --- */
         #editor-container {
             flex: 1;
             position: relative;
@@ -152,23 +173,23 @@
             justify-content: center;
         }
 
-        /* Canvas Layers */
+        /* Importante: Evita que la imagen se salga en pantallas pequeñas */
         #image-canvas {
-            max-width: 100%;
-            max-height: 100%;
+            max-width: 95%; 
+            max-height: 95%;
             display: block;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
         }
 
         #overlay-svg {
-            position: absolute;
-            top: 0; left: 0;
+            position: absolute; top: 0; left: 0;
             width: 100%; height: 100%;
-            pointer-events: none; /* Allow clicks to pass through except on handles */
+            pointer-events: none;
+            z-index: 10;
         }
 
-        /* The Animation/Selection Area */
         .selection-polygon {
-            fill: rgba(0, 229, 255, 0.2); /* Semi-transparent Cyan */
+            fill: rgba(0, 229, 255, 0.2);
             stroke: var(--accent);
             stroke-width: 2;
             vector-effect: non-scaling-stroke;
@@ -176,37 +197,37 @@
 
         .crop-handle {
             fill: var(--accent);
-            stroke: white;
-            stroke-width: 2;
-            cursor: grab;
-            pointer-events: all; /* Catch touch events */
-            transition: r 0.2s ease;
+            stroke: #fff;
+            stroke-width: 3;
+            r: 12; /* Radio más grande para dedos */
+            pointer-events: all;
+            transition: r 0.2s;
         }
-        .crop-handle:active { r: 15; fill: white; }
+        .crop-handle:active { r: 18; fill: #fff; }
 
+        /* Footer del Editor - Elevado para Safari */
         .editor-footer {
-            height: 70px;
+            height: auto;
+            min-height: 70px;
             background: var(--surface);
             display: flex;
-            justify-content: space-around;
+            justify-content: space-between;
             align-items: center;
+            padding: 15px 20px;
+            /* SAFE AREA FIX */
+            padding-bottom: calc(15px + env(safe-area-inset-bottom));
+            z-index: 20;
         }
 
-        /* --- Loading Overlay --- */
         #loader {
             position: fixed; top:0; left:0; width:100%; height:100%;
-            background: rgba(15, 23, 42, 0.9);
+            background: rgba(15, 23, 42, 0.95);
             z-index: 100;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
         }
         .spinner {
-            width: 40px; height: 40px;
-            border: 4px solid rgba(255,255,255,0.1);
-            border-left-color: var(--accent);
-            border-radius: 50%;
+            width: 40px; height: 40px; border: 4px solid rgba(255,255,255,0.1);
+            border-left-color: var(--accent); border-radius: 50%;
             animation: spin 1s linear infinite;
         }
         @keyframes spin { 100% { transform: rotate(360deg); } }
@@ -217,98 +238,105 @@
 
     <div id="loader">
         <div class="spinner"></div>
-        <p style="margin-top: 15px;">Cargando Motor de Visión...</p>
+        <p style="margin-top: 15px;">Cargando Scanner...</p>
     </div>
 
     <div id="view-home" class="view active">
         <div class="app-header">
-            <span>Mis Documentos</span>
-            <span id="page-counter">0 Páginas</span>
+            <span style="font-weight:bold;">Scanner Pro</span>
+            <span id="page-counter" style="font-size: 0.9em; opacity: 0.8;">0 Páginas</span>
         </div>
         
         <div id="gallery-grid">
             <div class="empty-state" id="empty-msg">
-                <p>No hay páginas escaneadas.</p>
-                <p>Toca + para comenzar.</p>
+                <p>Presiona <b>+</b> para escanear documentos.</p>
             </div>
         </div>
 
         <div class="fab-container">
-            <button class="fab" onclick="generatePDF()" style="background: #ef4444; color: white;" title="Generar PDF">
-                PDF
+            <button class="fab" onclick="generatePDF()" style="background: #ef4444; color: white;" title="Crear PDF">
+                <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
             </button>
-            <button class="fab" onclick="startCamera()">+</button>
+            <button class="fab" onclick="startCamera()">
+                <svg width="30" height="30" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 4v16m8-8H4"></path></svg>
+            </button>
             <input type="file" id="file-input" accept="image/*" style="display:none" onchange="handleFileUpload(this)">
         </div>
     </div>
 
     <div id="view-camera" class="view">
-        <video id="video-feed" autoplay playsinline></video>
+        <div id="video-container">
+            <video id="video-feed" autoplay playsinline></video>
+        </div>
         <div class="camera-controls">
-            <button class="btn secondary" onclick="document.getElementById('file-input').click()">📁 Galería</button>
+            <button class="btn secondary" onclick="document.getElementById('file-input').click()">
+                <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="vertical-align: middle;"><path d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg> Galería
+            </button>
             <button class="capture-btn" onclick="captureImage()"></button>
-            <button class="btn secondary" onclick="switchView('view-home')">Cancelar</button>
+            <button class="btn secondary" onclick="switchView('view-home')">X</button>
         </div>
         <canvas id="hidden-canvas" style="display:none;"></canvas>
     </div>
 
     <div id="view-editor" class="view">
         <div class="app-header">
-            <button class="btn secondary" onclick="retakePhoto()">Reintentar</button>
-            <span>Ajustar Bordes</span>
-            <button class="btn accent" onclick="processCrop()">Confirmar</button>
+            <span>Ajustar Recorte</span>
         </div>
         
         <div id="editor-container">
             <canvas id="image-canvas"></canvas>
             <svg id="overlay-svg">
                 <polygon id="crop-polygon" class="selection-polygon" points=""></polygon>
-                <circle id="p0" class="crop-handle" r="10"></circle>
-                <circle id="p1" class="crop-handle" r="10"></circle>
-                <circle id="p2" class="crop-handle" r="10"></circle>
-                <circle id="p3" class="crop-handle" r="10"></circle>
+                <circle id="p0" class="crop-handle"></circle>
+                <circle id="p1" class="crop-handle"></circle>
+                <circle id="p2" class="crop-handle"></circle>
+                <circle id="p3" class="crop-handle"></circle>
             </svg>
+        </div>
+
+        <div class="editor-footer">
+            <button class="btn secondary" onclick="retakePhoto()">Reintentar</button>
+            <button class="btn accent" onclick="processCrop()" style="min-width: 120px;">
+                Guardar
+            </button>
         </div>
     </div>
 
     <script>
-        // --- Global State ---
+        // --- Estado Global ---
         let cvReady = false;
-        let scannedPages = []; // Stores Base64 images
+        let scannedPages = [];
         let currentStream = null;
-        let originalMat = null; // OpenCV Mat
-        let displayedScale = 1; // Ratio between Screen Size and Actual Image
+        let originalMat = null;
+        let displayedScale = 1;
         
-        // Crop Points (TL, TR, BR, BL)
-        let cropPoints = [
-            {x:0, y:0}, {x:0, y:0}, {x:0, y:0}, {x:0, y:0}
-        ];
+        // Coordenadas de Recorte (Normalizadas a tamaño real de imagen)
+        let cropPoints = [{x:0, y:0}, {x:0, y:0}, {x:0, y:0}, {x:0, y:0}];
         let activeHandleIndex = -1;
 
-        // --- Initialization ---
+        // --- Inicialización ---
         function onOpenCvReady() {
             cvReady = true;
             document.getElementById('loader').style.display = 'none';
-            console.log("OpenCV.js Ready");
         }
 
         function switchView(viewId) {
             document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
             document.getElementById(viewId).classList.add('active');
             
-            // Cleanup camera if leaving camera view
             if (viewId !== 'view-camera' && currentStream) {
                 currentStream.getTracks().forEach(track => track.stop());
                 currentStream = null;
             }
         }
 
-        // --- Camera & Capture Logic ---
+        // --- Cámara ---
         async function startCamera() {
-            if (!cvReady) { alert("El motor aún está cargando..."); return; }
+            if (!cvReady) { alert("Cargando motor de visión..."); return; }
             switchView('view-camera');
             
             try {
+                // Constraints para pedir la mejor cámara trasera
                 const constraints = {
                     video: {
                         facingMode: { ideal: "environment" },
@@ -319,8 +347,7 @@
                 currentStream = await navigator.mediaDevices.getUserMedia(constraints);
                 document.getElementById('video-feed').srcObject = currentStream;
             } catch (err) {
-                console.error("Error cámara:", err);
-                alert("No se pudo acceder a la cámara. Usa la opción de Galería.");
+                alert("Error de cámara: " + err.message + ". Intenta usar 'Galería'.");
             }
         }
 
@@ -334,11 +361,14 @@
                 };
                 reader.readAsDataURL(input.files[0]);
             }
+            // Reset input
+            input.value = '';
         }
 
         function captureImage() {
             const video = document.getElementById('video-feed');
             const canvas = document.getElementById('hidden-canvas');
+            // Fijar resolución del canvas a la del video
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
             const ctx = canvas.getContext('2d');
@@ -349,112 +379,124 @@
             img.src = canvas.toDataURL('image/jpeg');
         }
 
-        // --- Core Vision & Editor Logic ---
+        // --- Lógica de Visión (AUTO DETECCIÓN MEJORADA) ---
         function initEditor(imageObj) {
             switchView('view-editor');
             
-            // Init OpenCV Mat
+            if(originalMat) originalMat.delete();
             originalMat = cv.imread(imageObj);
             
-            // 1. Detect Contours/Edges
-            const detectedPoints = detectDocument(originalMat);
-            cropPoints = detectedPoints;
+            // 1. Detectar bordes automáticamente
+            cropPoints = detectDocument(originalMat);
 
-            // 2. Render to Canvas (Scaled to fit screen)
+            // 2. Renderizar
             renderEditorCanvas(imageObj);
         }
 
-        function detectDocument(srcMat) {
-            // Processing pipeline
+        function detectDocument(src) {
             let dst = new cv.Mat();
             let gray = new cv.Mat();
             let blurred = new cv.Mat();
             let edges = new cv.Mat();
-            
+            let kernel = cv.Mat.ones(5, 5, cv.CV_8U); // Kernel para morfología
+
             try {
-                cv.cvtColor(srcMat, gray, cv.COLOR_RGBA2GRAY);
+                // Pre-procesamiento
+                cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
                 cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0);
+                
+                // Canny Edge Detection
                 cv.Canny(blurred, edges, 75, 200);
+
+                // Paso extra: Dilatar para cerrar huecos en líneas
+                cv.dilate(edges, edges, kernel);
 
                 let contours = new cv.MatVector();
                 let hierarchy = new cv.Mat();
                 cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
                 let maxArea = 0;
-                let maxContourIndex = -1;
+                let biggestContour = null;
 
-                // Find largest contour
+                // Buscar el contorno cuadrilátero más grande
                 for (let i = 0; i < contours.size(); ++i) {
-                    let area = cv.contourArea(contours.get(i));
-                    if (area > maxArea) {
-                        maxArea = area;
-                        maxContourIndex = i;
-                    }
-                }
+                    let cnt = contours.get(i);
+                    let area = cv.contourArea(cnt);
+                    
+                    // Filtrar ruido pequeño
+                    if (area > 5000) { 
+                        let peri = cv.arcLength(cnt, true);
+                        let approx = new cv.Mat();
+                        cv.approxPolyDP(cnt, approx, 0.02 * peri, true);
 
-                // Default to full image if nothing found
-                let resultPoints = [
-                    {x: 0, y: 0}, 
-                    {x: srcMat.cols, y: 0}, 
-                    {x: srcMat.cols, y: srcMat.rows}, 
-                    {x: 0, y: srcMat.rows}
-                ];
-
-                if (maxContourIndex !== -1) {
-                    let cnt = contours.get(maxContourIndex);
-                    let peri = cv.arcLength(cnt, true);
-                    let approx = new cv.Mat();
-                    cv.approxPolyDP(cnt, approx, 0.02 * peri, true);
-
-                    if (approx.rows === 4) {
-                        // Found a quad!
-                        let pointsArray = [];
-                        for(let i=0; i<4; i++) {
-                            pointsArray.push({
-                                x: approx.data32S[i*2],
-                                y: approx.data32S[i*2 + 1]
-                            });
+                        if (area > maxArea && approx.rows === 4) {
+                            maxArea = area;
+                            biggestContour = approx.clone(); // Guardar copia
                         }
-                        resultPoints = sortPoints(pointsArray);
+                        approx.delete();
                     }
-                    approx.delete();
                 }
 
-                // Cleanup
+                let resultPoints;
+
+                if (biggestContour) {
+                    // Si encontramos un cuadrado
+                    let pts = [];
+                    for(let i=0; i<4; i++) {
+                        pts.push({
+                            x: biggestContour.data32S[i*2],
+                            y: biggestContour.data32S[i*2 + 1]
+                        });
+                    }
+                    resultPoints = sortPoints(pts);
+                    biggestContour.delete();
+                } else {
+                    // Fallback: Si falla, seleccionamos toda la imagen con un pequeño margen
+                    const w = src.cols;
+                    const h = src.rows;
+                    const m = 20; // Margen
+                    resultPoints = [
+                        {x: m, y: m},          // TL
+                        {x: w-m, y: m},        // TR
+                        {x: w-m, y: h-m},      // BR
+                        {x: m, y: h-m}         // BL
+                    ];
+                }
+
+                // Limpieza de memoria
                 contours.delete(); hierarchy.delete(); 
-                gray.delete(); blurred.delete(); edges.delete(); dst.delete();
+                gray.delete(); blurred.delete(); edges.delete(); dst.delete(); kernel.delete();
 
                 return resultPoints;
 
             } catch (e) {
-                console.error("OpenCV Error", e);
-                return resultPoints; // Fallback
+                console.error("Error CV:", e);
+                // Retornar cuadro completo en caso de error
+                return [{x:0,y:0}, {x:src.cols,y:0}, {x:src.cols,y:src.rows}, {x:0,y:src.rows}];
             }
         }
 
-        // Geometric sort to order TL, TR, BR, BL
+        // Ordenar puntos: TopLeft, TopRight, BottomRight, BottomLeft
         function sortPoints(pts) {
             pts.sort((a,b) => a.y - b.y);
-            
-            // Get top 2 and bottom 2
             let top = pts.slice(0, 2).sort((a,b) => a.x - b.x);
             let bottom = pts.slice(2, 4).sort((a,b) => a.x - b.x);
-
-            // TL, TR, BR, BL
             return [top[0], top[1], bottom[1], bottom[0]];
         }
 
+        // --- Renderizado del Editor ---
         function renderEditorCanvas(imageObj) {
             const canvas = document.getElementById('image-canvas');
             const container = document.getElementById('editor-container');
+            const svg = document.getElementById('overlay-svg');
             
-            // Calculate scale to fit
+            // Lógica de ajuste "Fit Contain"
             const maxWidth = container.clientWidth;
             const maxHeight = container.clientHeight;
             
             const scaleX = maxWidth / imageObj.width;
             const scaleY = maxHeight / imageObj.height;
-            displayedScale = Math.min(scaleX, scaleY); // Fit Contain
+            displayedScale = Math.min(scaleX, scaleY) * 0.95; // 95% para dejar margen
 
             canvas.width = imageObj.width * displayedScale;
             canvas.height = imageObj.height * displayedScale;
@@ -462,24 +504,25 @@
             const ctx = canvas.getContext('2d');
             ctx.drawImage(imageObj, 0, 0, canvas.width, canvas.height);
 
-            // Update SVG Overlay dimensions
-            const svg = document.getElementById('overlay-svg');
+            // Centrar el canvas visualmente
             svg.style.width = canvas.width + 'px';
             svg.style.height = canvas.height + 'px';
+            svg.style.left = (container.clientWidth - canvas.width) / 2 + 'px';
+            svg.style.top = (container.clientHeight - canvas.height) / 2 + 'px';
+            
+            canvas.style.marginLeft = svg.style.left;
+            canvas.style.marginTop = svg.style.top;
 
             updateOverlayGraphics();
         }
 
-        // --- Interaction & Animation (SVG) ---
         function updateOverlayGraphics() {
-            // Update polygon points
             const polyString = cropPoints.map(p => 
                 `${p.x * displayedScale},${p.y * displayedScale}`
             ).join(" ");
             
             document.getElementById('crop-polygon').setAttribute("points", polyString);
 
-            // Update Handles
             for(let i=0; i<4; i++) {
                 const handle = document.getElementById('p'+i);
                 handle.setAttribute("cx", cropPoints[i].x * displayedScale);
@@ -487,117 +530,106 @@
             }
         }
 
-        // SVG Event Listeners for Dragging
+        // --- Eventos Táctiles (UI Editor) ---
         const svgOverlay = document.getElementById('overlay-svg');
         
-        svgOverlay.addEventListener('touchstart', handleStart, {passive: false});
-        svgOverlay.addEventListener('touchmove', handleMove, {passive: false});
-        svgOverlay.addEventListener('touchend', () => activeHandleIndex = -1);
-        
-        // Mouse support for desktop testing
-        svgOverlay.addEventListener('mousedown', handleStart);
-        svgOverlay.addEventListener('mousemove', handleMove);
-        svgOverlay.addEventListener('mouseup', () => activeHandleIndex = -1);
-
-        function handleStart(e) {
-            e.preventDefault();
+        const onStart = (e) => {
+            e.preventDefault(); // Prevenir scroll en safari
             const {x, y} = getEventCoords(e);
+            let minDist = 40; // Radio de toque generoso
             
-            // Find closest handle
-            let minDist = 1000;
             cropPoints.forEach((p, i) => {
                 const px = p.x * displayedScale;
                 const py = p.y * displayedScale;
                 const dist = Math.hypot(px - x, py - y);
-                if (dist < 40) { // Hit radius
-                    if (dist < minDist) {
-                        minDist = dist;
-                        activeHandleIndex = i;
-                    }
+                if (dist < minDist) {
+                    minDist = dist;
+                    activeHandleIndex = i;
                 }
             });
-        }
+        };
 
-        function handleMove(e) {
+        const onMove = (e) => {
             if (activeHandleIndex === -1) return;
             e.preventDefault();
             const {x, y} = getEventCoords(e);
             
-            // Update logic coord
-            cropPoints[activeHandleIndex].x = x / displayedScale;
-            cropPoints[activeHandleIndex].y = y / displayedScale;
+            // Actualizar coordenadas (limitadas al borde de la imagen)
+            let newX = x / displayedScale;
+            let newY = y / displayedScale;
             
-            // Visual Update (Animation)
+            // Clamp (evitar salir de la imagen)
+            newX = Math.max(0, Math.min(originalMat.cols, newX));
+            newY = Math.max(0, Math.min(originalMat.rows, newY));
+
+            cropPoints[activeHandleIndex].x = newX;
+            cropPoints[activeHandleIndex].y = newY;
             updateOverlayGraphics();
-        }
+        };
+
+        const onEnd = () => activeHandleIndex = -1;
+
+        svgOverlay.addEventListener('touchstart', onStart, {passive: false});
+        svgOverlay.addEventListener('touchmove', onMove, {passive: false});
+        svgOverlay.addEventListener('touchend', onEnd);
+        
+        svgOverlay.addEventListener('mousedown', onStart);
+        svgOverlay.addEventListener('mousemove', onMove);
+        svgOverlay.addEventListener('mouseup', onEnd);
 
         function getEventCoords(e) {
-            const svgRect = svgOverlay.getBoundingClientRect();
-            let clientX, clientY;
-            
-            if (e.touches && e.touches.length > 0) {
-                clientX = e.touches[0].clientX;
-                clientY = e.touches[0].clientY;
+            const rect = svgOverlay.getBoundingClientRect();
+            let cx, cy;
+            if (e.touches && e.touches.length) {
+                cx = e.touches[0].clientX;
+                cy = e.touches[0].clientY;
             } else {
-                clientX = e.clientX;
-                clientY = e.clientY;
+                cx = e.clientX;
+                cy = e.clientY;
             }
-            return {
-                x: clientX - svgRect.left,
-                y: clientY - svgRect.top
-            };
+            return { x: cx - rect.left, y: cy - rect.top };
         }
 
-        // --- Final Processing & Output ---
+        // --- Procesar y Guardar ---
         function processCrop() {
-            // Warp Perspective
+            // Homografía (Transformación de perspectiva)
             let srcTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
                 cropPoints[0].x, cropPoints[0].y,
                 cropPoints[1].x, cropPoints[1].y,
-                cropPoints[2].x, cropPoints[2].y, // Note order in OpenCV might differ, adhering to sorted
+                cropPoints[2].x, cropPoints[2].y,
                 cropPoints[3].x, cropPoints[3].y
             ]);
 
-            // Calculate width/height of new doc
-            const w1 = Math.hypot(cropPoints[1].x - cropPoints[0].x, cropPoints[1].y - cropPoints[0].y);
-            const w2 = Math.hypot(cropPoints[2].x - cropPoints[3].x, cropPoints[2].y - cropPoints[3].y);
-            const h1 = Math.hypot(cropPoints[3].x - cropPoints[0].x, cropPoints[3].y - cropPoints[0].y);
-            const h2 = Math.hypot(cropPoints[2].x - cropPoints[1].x, cropPoints[2].y - cropPoints[1].y);
+            // Calcular ancho/alto final basados en la geometría detectada
+            const wTop = Math.hypot(cropPoints[1].x - cropPoints[0].x, cropPoints[1].y - cropPoints[0].y);
+            const wBot = Math.hypot(cropPoints[2].x - cropPoints[3].x, cropPoints[2].y - cropPoints[3].y);
+            const hLeft = Math.hypot(cropPoints[3].x - cropPoints[0].x, cropPoints[3].y - cropPoints[0].y);
+            const hRight = Math.hypot(cropPoints[2].x - cropPoints[1].x, cropPoints[2].y - cropPoints[1].y);
             
-            const finalW = Math.max(w1, w2);
-            const finalH = Math.max(h1, h2);
+            const finalW = Math.max(wTop, wBot);
+            const finalH = Math.max(hLeft, hRight);
 
-            let dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
-                0, 0,
-                finalW, 0,
-                finalW, finalH,
-                0, finalH
-            ]);
-
+            let dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [0,0, finalW,0, finalW,finalH, 0,finalH]);
             let M = cv.getPerspectiveTransform(srcTri, dstTri);
-            let dsize = new cv.Size(finalW, finalH);
             let dst = new cv.Mat();
-            cv.warpPerspective(originalMat, dst, M, dsize, cv.INTER_LINEAR, cv.BORDER_CONSTANT, new cv.Scalar());
+            
+            // Warp
+            cv.warpPerspective(originalMat, dst, M, new cv.Size(finalW, finalH));
 
-            // Optional: Apply threshold (B&W filter)
-            // cv.cvtColor(dst, dst, cv.COLOR_RGBA2GRAY);
-            // cv.adaptiveThreshold(dst, dst, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 11, 2);
+            // Filtro estilo Scanner (Opcional: Binarización)
+            // Para mantener color pero mejorar contraste:
+            cv.cvtColor(dst, dst, cv.COLOR_RGBA2RGB); // Quitar alpha
 
-            // Render Result to store
             cv.imshow('hidden-canvas', dst);
-            const finalImage = document.getElementById('hidden-canvas').toDataURL('image/jpeg', 0.8);
+            const res = document.getElementById('hidden-canvas').toDataURL('image/jpeg', 0.85);
             
-            addPage(finalImage);
-            
-            // Clean up
-            srcTri.delete(); dstTri.delete(); M.delete(); dst.delete();
-            if(originalMat) originalMat.delete();
-        }
-
-        function addPage(imgData) {
-            scannedPages.push(imgData);
+            scannedPages.push(res);
             updateGallery();
             switchView('view-home');
+
+            // Cleanup
+            srcTri.delete(); dstTri.delete(); M.delete(); dst.delete();
+            if(originalMat) originalMat.delete(); originalMat = null;
         }
 
         function updateGallery() {
@@ -605,51 +637,42 @@
             const empty = document.getElementById('empty-msg');
             const counter = document.getElementById('page-counter');
             
-            if (scannedPages.length > 0) empty.style.display = 'none';
-            else empty.style.display = 'block';
-
-            counter.innerText = `${scannedPages.length} Páginas`;
+            empty.style.display = scannedPages.length ? 'none' : 'block';
+            counter.innerText = `${scannedPages.length} Página(s)`;
             
-            // Simple re-render (in production, use append for performance)
+            // Reconstrucción simple
             grid.innerHTML = '';
-            grid.appendChild(empty); // keep ref
+            grid.appendChild(empty);
             
             scannedPages.forEach((src, idx) => {
-                const card = document.createElement('div');
-                card.className = 'thumb-card';
-                card.innerHTML = `<img src="${src}">`;
-                grid.appendChild(card);
+                const d = document.createElement('div');
+                d.className = 'thumb-card';
+                d.innerHTML = `<img src="${src}">`;
+                grid.appendChild(d);
             });
         }
 
         function retakePhoto() {
-            if(originalMat) originalMat.delete();
+            if(originalMat) { originalMat.delete(); originalMat = null; }
             startCamera();
         }
 
-        // --- PDF Generation ---
         function generatePDF() {
-            if (scannedPages.length === 0) {
-                alert("Escanea al menos una página.");
-                return;
-            }
-
+            if (!scannedPages.length) return alert("Escanea algo primero.");
+            
             const { jsPDF } = window.jspdf;
             const doc = new jsPDF();
-
-            scannedPages.forEach((imgData, i) => {
-                if (i > 0) doc.addPage();
-                
-                const pageWidth = doc.internal.pageSize.getWidth();
-                const pageHeight = doc.internal.pageSize.getHeight();
-                
-                // Add Image scaling to fit A4
-                doc.addImage(imgData, 'JPEG', 0, 0, pageWidth, pageHeight, undefined, 'FAST');
+            
+            scannedPages.forEach((img, i) => {
+                if(i>0) doc.addPage();
+                const props = doc.getImageProperties(img);
+                const pdfW = doc.internal.pageSize.getWidth();
+                const pdfH = (props.height * pdfW) / props.width; // Mantener ratio
+                doc.addImage(img, 'JPEG', 0, 0, pdfW, pdfH);
             });
-
-            doc.save('documento_escaneado.pdf');
+            
+            doc.save('scan_' + new Date().getTime() + '.pdf');
         }
-
     </script>
 </body>
 </html>
