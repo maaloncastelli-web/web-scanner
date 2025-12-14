@@ -2,335 +2,654 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Scanner Pro V4 - High Precision</title>
-    
-    <script src="https://docs.opencv.org/4.7.0/opencv.js" async onload="onOpenCvReady();"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Scanner Pro Web</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-
+    <script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="onOpenCvReady();" type="text/javascript"></script>
+    
     <style>
-        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-        body { 
-            margin: 0; background: #000; color: white; 
-            height: 100dvh; width: 100vw; overflow: hidden;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            display: flex; flex-direction: column;
+        :root {
+            --primary: #2563eb;
+            --accent: #00e5ff;
+            --bg: #0f172a;
+            --surface: #1e293b;
+            --text: #f8fafc;
         }
 
-        /* Área Visual */
-        #viewport {
-            position: relative; flex: 1; width: 100%; overflow: hidden;
-        }
-        video { width: 100%; height: 100%; object-fit: cover; }
-        #canvasOverlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+        * { box-sizing: border-box; touch-action: none; user-select: none; }
         
-        /* Debug View: Pequeña ventana para ver cómo procesa la IA */
-        #debugCanvas {
-            position: absolute; top: 10px; right: 10px; 
-            width: 100px; height: auto; 
-            border: 1px solid lime; background: black;
-            z-index: 50; display: none; /* Oculto por defecto */
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
         }
 
-        /* UI */
-        #hud {
-            position: absolute; bottom: 0; left: 0; width: 100%;
-            background: linear-gradient(to top, rgba(0,0,0,0.95), transparent);
-            padding-bottom: env(safe-area-inset-bottom, 20px);
-            display: flex; flex-direction: column; gap: 15px; z-index: 20;
+        /* --- UI Components --- */
+        .app-header {
+            padding: 15px;
+            background: var(--surface);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+            z-index: 10;
         }
 
-        #gallery {
-            display: flex; gap: 10px; overflow-x: auto; padding: 0 20px;
-            height: 70px; align-items: center;
-        }
-        .thumb { height: 60px; border-radius: 4px; border: 2px solid #555; transition: 0.2s; }
-        .thumb.new { border-color: #00e676; transform: scale(1.1); }
-
-        .controls { display: flex; justify-content: space-around; align-items: center; padding: 10px 20px 20px; }
-        
         .btn {
-            background: rgba(255,255,255,0.15); border: none; color: white;
-            border-radius: 30px; padding: 10px 18px; font-weight: 600; font-size: 13px;
-            backdrop-filter: blur(5px);
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 14px;
         }
         
-        .shutter-ring {
-            width: 70px; height: 70px; border-radius: 50%;
-            border: 4px solid white; display: flex; justify-content: center; align-items: center;
-        }
-        .shutter-core {
-            width: 58px; height: 58px; background: white; border-radius: 50%;
-            transition: 0.1s;
-        }
-        .shutter-ring:active .shutter-core { transform: scale(0.85); background: #ddd; }
+        .btn.secondary { background: #475569; }
+        .btn.accent { background: var(--accent); color: #000; }
 
-        #msg {
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            background: rgba(0,0,0,0.7); padding: 15px 25px; border-radius: 8px;
-            text-align: center; font-size: 14px; pointer-events: none; display: none;
+        /* --- Views Management --- */
+        .view {
+            flex: 1;
+            display: none; /* Hidden by default */
+            flex-direction: column;
+            position: relative;
+            width: 100%;
+            height: 100%;
         }
+
+        .view.active { display: flex; }
+
+        /* --- Home/Gallery View --- */
+        #gallery-grid {
+            padding: 20px;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+            gap: 15px;
+            overflow-y: auto;
+        }
+
+        .thumb-card {
+            background: var(--surface);
+            border-radius: 8px;
+            overflow: hidden;
+            position: relative;
+            aspect-ratio: 1/1.4;
+            border: 1px solid #334155;
+        }
+
+        .thumb-card img { width: 100%; height: 100%; object-fit: cover; }
+        
+        .empty-state {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            color: #64748b;
+        }
+
+        .fab-container {
+            position: absolute;
+            bottom: 30px;
+            right: 30px;
+            display: flex;
+            gap: 15px;
+        }
+
+        .fab {
+            width: 56px; height: 56px;
+            border-radius: 50%;
+            border: none;
+            background: var(--accent);
+            color: #000;
+            font-size: 24px;
+            box-shadow: 0 4px 15px rgba(0,229,255, 0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+
+        /* --- Camera View --- */
+        #video-feed {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        
+        .camera-controls {
+            position: absolute;
+            bottom: 40px;
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+        }
+
+        .capture-btn {
+            width: 70px; height: 70px;
+            border-radius: 50%;
+            border: 4px solid white;
+            background: transparent;
+        }
+        .capture-btn:active { background: white; }
+
+        /* --- Crop/Edit View --- */
+        #editor-container {
+            flex: 1;
+            position: relative;
+            background: #000;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Canvas Layers */
+        #image-canvas {
+            max-width: 100%;
+            max-height: 100%;
+            display: block;
+        }
+
+        #overlay-svg {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            pointer-events: none; /* Allow clicks to pass through except on handles */
+        }
+
+        /* The Animation/Selection Area */
+        .selection-polygon {
+            fill: rgba(0, 229, 255, 0.2); /* Semi-transparent Cyan */
+            stroke: var(--accent);
+            stroke-width: 2;
+            vector-effect: non-scaling-stroke;
+        }
+
+        .crop-handle {
+            fill: var(--accent);
+            stroke: white;
+            stroke-width: 2;
+            cursor: grab;
+            pointer-events: all; /* Catch touch events */
+            transition: r 0.2s ease;
+        }
+        .crop-handle:active { r: 15; fill: white; }
+
+        .editor-footer {
+            height: 70px;
+            background: var(--surface);
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+        }
+
+        /* --- Loading Overlay --- */
+        #loader {
+            position: fixed; top:0; left:0; width:100%; height:100%;
+            background: rgba(15, 23, 42, 0.9);
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+        .spinner {
+            width: 40px; height: 40px;
+            border: 4px solid rgba(255,255,255,0.1);
+            border-left-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+
     </style>
 </head>
 <body>
 
-<div id="viewport">
-    <video id="video" autoplay playsinline muted></video>
-    <canvas id="canvasOverlay"></canvas>
-    <canvas id="debugCanvas"></canvas>
-    <div id="msg">Iniciando cámara...</div>
-</div>
-
-<div id="hud">
-    <div id="gallery"></div>
-    <div class="controls">
-        <button class="btn" onclick="toggleDebug()">👁 Debug</button>
-        <div class="shutter-ring" onclick="capture()">
-            <div class="shutter-core"></div>
-        </div>
-        <button class="btn" style="background: #28a745;" onclick="makePDF()">📄 PDF <span id="cnt">(0)</span></button>
+    <div id="loader">
+        <div class="spinner"></div>
+        <p style="margin-top: 15px;">Cargando Motor de Visión...</p>
     </div>
-</div>
 
-<script>
-    const CONFIG = {
-        processWidth: 800, // Aumentado para mejor detalle
-        minArea: 10000,    // Área mínima más exigente para reducir falsos positivos
-    };
-
-    let state = {
-        cvReady: false,
-        stream: null,
-        pages: [],
-        currContour: null,
-        debugMode: false,
-        busy: false
-    };
-
-    const video = document.getElementById('video');
-    const overlay = document.getElementById('canvasOverlay');
-    const debugCv = document.getElementById('debugCanvas');
-    const ctxOv = overlay.getContext('2d');
-    const msg = document.getElementById('msg');
-
-    function showMsg(text) {
-        msg.innerText = text;
-        msg.style.display = 'block';
-        setTimeout(() => msg.style.display = 'none', 2000);
-    }
-
-    function onOpenCvReady() {
-        state.cvReady = true;
-        showMsg("OpenCV Cargado");
-        startCamera();
-    }
-
-    async function startCamera() {
-        try {
-            const constraints = { video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } } };
-            state.stream = await navigator.mediaDevices.getUserMedia(constraints);
-            video.srcObject = state.stream;
-            video.onloadedmetadata = () => {
-                video.play();
-                requestAnimationFrame(loop);
-            };
-        } catch(e) { alert("Error Cámara: " + e); }
-    }
-
-    // --- BUCLE DE PROCESAMIENTO MEJORADO ---
-    function loop() {
-        if (!state.cvReady || video.paused || video.ended) { requestAnimationFrame(loop); return; }
-
-        // 1. Setup y Escalado
-        overlay.width = video.videoWidth; overlay.height = video.videoHeight;
+    <div id="view-home" class="view active">
+        <div class="app-header">
+            <span>Mis Documentos</span>
+            <span id="page-counter">0 Páginas</span>
+        </div>
         
-        let src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
-        let cap = new cv.VideoCapture(video);
-        cap.read(src);
+        <div id="gallery-grid">
+            <div class="empty-state" id="empty-msg">
+                <p>No hay páginas escaneadas.</p>
+                <p>Toca + para comenzar.</p>
+            </div>
+        </div>
 
-        let small = new cv.Mat();
-        let scale = CONFIG.processWidth / src.cols;
-        cv.resize(src, small, new cv.Size(CONFIG.processWidth, src.rows * scale));
+        <div class="fab-container">
+            <button class="fab" onclick="generatePDF()" style="background: #ef4444; color: white;" title="Generar PDF">
+                PDF
+            </button>
+            <button class="fab" onclick="startCamera()">+</button>
+            <input type="file" id="file-input" accept="image/*" style="display:none" onchange="handleFileUpload(this)">
+        </div>
+    </div>
 
-        // 2. PRE-PROCESAMIENTO ROBUSTO (La clave de la mejora)
-        let gray = new cv.Mat();
-        cv.cvtColor(small, gray, cv.COLOR_RGBA2GRAY);
-        
-        // Blur suave para ruido
-        cv.GaussianBlur(gray, gray, new cv.Size(5, 5), 0);
-        
-        // Threshold Adaptativo en lugar de Canny
-        // Esto convierte todo en blanco o negro sólido, mucho más fácil de detectar
-        let binary = new cv.Mat();
-        cv.adaptiveThreshold(gray, binary, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 11, 2);
-        
-        // Erosión + Dilatación para eliminar ruido y cerrar bordes rotos
-        // "Limpiamos" los puntos negros pequeños y reconectamos líneas blancas
-        let kernel = cv.Mat.ones(3, 3, cv.CV_8U);
-        cv.morphologyEx(binary, binary, cv.MORPH_OPEN, kernel); 
-        // Borde Canny sobre la imagen binaria limpia
-        let edges = new cv.Mat();
-        cv.Canny(binary, edges, 50, 150);
+    <div id="view-camera" class="view">
+        <video id="video-feed" autoplay playsinline></video>
+        <div class="camera-controls">
+            <button class="btn secondary" onclick="document.getElementById('file-input').click()">📁 Galería</button>
+            <button class="capture-btn" onclick="captureImage()"></button>
+            <button class="btn secondary" onclick="switchView('view-home')">Cancelar</button>
+        </div>
+        <canvas id="hidden-canvas" style="display:none;"></canvas>
+    </div>
 
-        // 3. Si Debug está activo, mostramos la visión binaria
-        if (state.debugMode) {
-            cv.imshow(debugCv, binary); 
-            debugCv.style.display = 'block';
-        } else {
-            debugCv.style.display = 'none';
+    <div id="view-editor" class="view">
+        <div class="app-header">
+            <button class="btn secondary" onclick="retakePhoto()">Reintentar</button>
+            <span>Ajustar Bordes</span>
+            <button class="btn accent" onclick="processCrop()">Confirmar</button>
+        </div>
+        
+        <div id="editor-container">
+            <canvas id="image-canvas"></canvas>
+            <svg id="overlay-svg">
+                <polygon id="crop-polygon" class="selection-polygon" points=""></polygon>
+                <circle id="p0" class="crop-handle" r="10"></circle>
+                <circle id="p1" class="crop-handle" r="10"></circle>
+                <circle id="p2" class="crop-handle" r="10"></circle>
+                <circle id="p3" class="crop-handle" r="10"></circle>
+            </svg>
+        </div>
+    </div>
+
+    <script>
+        // --- Global State ---
+        let cvReady = false;
+        let scannedPages = []; // Stores Base64 images
+        let currentStream = null;
+        let originalMat = null; // OpenCV Mat
+        let displayedScale = 1; // Ratio between Screen Size and Actual Image
+        
+        // Crop Points (TL, TR, BR, BL)
+        let cropPoints = [
+            {x:0, y:0}, {x:0, y:0}, {x:0, y:0}, {x:0, y:0}
+        ];
+        let activeHandleIndex = -1;
+
+        // --- Initialization ---
+        function onOpenCvReady() {
+            cvReady = true;
+            document.getElementById('loader').style.display = 'none';
+            console.log("OpenCV.js Ready");
         }
 
-        // 4. Detección de Contornos
-        let contours = new cv.MatVector();
-        let hierarchy = new cv.Mat();
-        cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+        function switchView(viewId) {
+            document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+            document.getElementById(viewId).classList.add('active');
+            
+            // Cleanup camera if leaving camera view
+            if (viewId !== 'view-camera' && currentStream) {
+                currentStream.getTracks().forEach(track => track.stop());
+                currentStream = null;
+            }
+        }
 
-        let bestCnt = null;
-        let maxArea = 0;
-
-        for (let i = 0; i < contours.size(); ++i) {
-            let cnt = contours.get(i);
-            let area = cv.contourArea(cnt);
-
-            if (area > CONFIG.minArea) {
-                let peri = cv.arcLength(cnt, true);
-                let approx = new cv.Mat();
-                // Epsilon más relajado (0.02 -> 0.03) permite bordes un poco curvos
-                cv.approxPolyDP(cnt, approx, 0.03 * peri, true);
-
-                if (approx.rows === 4 && area > maxArea) {
-                    // Verificación extra: Convexidad
-                    if (cv.isContourConvex(approx)) {
-                        maxArea = area;
-                        if (bestCnt) bestCnt.delete();
-                        bestCnt = approx;
-                    } else {
-                        approx.delete();
+        // --- Camera & Capture Logic ---
+        async function startCamera() {
+            if (!cvReady) { alert("El motor aún está cargando..."); return; }
+            switchView('view-camera');
+            
+            try {
+                const constraints = {
+                    video: {
+                        facingMode: { ideal: "environment" },
+                        width: { ideal: 1920 },
+                        height: { ideal: 1080 }
                     }
-                } else {
+                };
+                currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+                document.getElementById('video-feed').srcObject = currentStream;
+            } catch (err) {
+                console.error("Error cámara:", err);
+                alert("No se pudo acceder a la cámara. Usa la opción de Galería.");
+            }
+        }
+
+        function handleFileUpload(input) {
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const img = new Image();
+                    img.onload = () => initEditor(img);
+                    img.src = e.target.result;
+                };
+                reader.readAsDataURL(input.files[0]);
+            }
+        }
+
+        function captureImage() {
+            const video = document.getElementById('video-feed');
+            const canvas = document.getElementById('hidden-canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0);
+            
+            const img = new Image();
+            img.onload = () => initEditor(img);
+            img.src = canvas.toDataURL('image/jpeg');
+        }
+
+        // --- Core Vision & Editor Logic ---
+        function initEditor(imageObj) {
+            switchView('view-editor');
+            
+            // Init OpenCV Mat
+            originalMat = cv.imread(imageObj);
+            
+            // 1. Detect Contours/Edges
+            const detectedPoints = detectDocument(originalMat);
+            cropPoints = detectedPoints;
+
+            // 2. Render to Canvas (Scaled to fit screen)
+            renderEditorCanvas(imageObj);
+        }
+
+        function detectDocument(srcMat) {
+            // Processing pipeline
+            let dst = new cv.Mat();
+            let gray = new cv.Mat();
+            let blurred = new cv.Mat();
+            let edges = new cv.Mat();
+            
+            try {
+                cv.cvtColor(srcMat, gray, cv.COLOR_RGBA2GRAY);
+                cv.GaussianBlur(gray, blurred, new cv.Size(5, 5), 0);
+                cv.Canny(blurred, edges, 75, 200);
+
+                let contours = new cv.MatVector();
+                let hierarchy = new cv.Mat();
+                cv.findContours(edges, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+                let maxArea = 0;
+                let maxContourIndex = -1;
+
+                // Find largest contour
+                for (let i = 0; i < contours.size(); ++i) {
+                    let area = cv.contourArea(contours.get(i));
+                    if (area > maxArea) {
+                        maxArea = area;
+                        maxContourIndex = i;
+                    }
+                }
+
+                // Default to full image if nothing found
+                let resultPoints = [
+                    {x: 0, y: 0}, 
+                    {x: srcMat.cols, y: 0}, 
+                    {x: srcMat.cols, y: srcMat.rows}, 
+                    {x: 0, y: srcMat.rows}
+                ];
+
+                if (maxContourIndex !== -1) {
+                    let cnt = contours.get(maxContourIndex);
+                    let peri = cv.arcLength(cnt, true);
+                    let approx = new cv.Mat();
+                    cv.approxPolyDP(cnt, approx, 0.02 * peri, true);
+
+                    if (approx.rows === 4) {
+                        // Found a quad!
+                        let pointsArray = [];
+                        for(let i=0; i<4; i++) {
+                            pointsArray.push({
+                                x: approx.data32S[i*2],
+                                y: approx.data32S[i*2 + 1]
+                            });
+                        }
+                        resultPoints = sortPoints(pointsArray);
+                    }
                     approx.delete();
                 }
+
+                // Cleanup
+                contours.delete(); hierarchy.delete(); 
+                gray.delete(); blurred.delete(); edges.delete(); dst.delete();
+
+                return resultPoints;
+
+            } catch (e) {
+                console.error("OpenCV Error", e);
+                return resultPoints; // Fallback
             }
         }
 
-        // 5. Dibujar Overlay
-        ctxOv.clearRect(0,0, overlay.width, overlay.height);
-        
-        if (bestCnt) {
-            // Re-escalar puntos
-            let pts = [];
+        // Geometric sort to order TL, TR, BR, BL
+        function sortPoints(pts) {
+            pts.sort((a,b) => a.y - b.y);
+            
+            // Get top 2 and bottom 2
+            let top = pts.slice(0, 2).sort((a,b) => a.x - b.x);
+            let bottom = pts.slice(2, 4).sort((a,b) => a.x - b.x);
+
+            // TL, TR, BR, BL
+            return [top[0], top[1], bottom[1], bottom[0]];
+        }
+
+        function renderEditorCanvas(imageObj) {
+            const canvas = document.getElementById('image-canvas');
+            const container = document.getElementById('editor-container');
+            
+            // Calculate scale to fit
+            const maxWidth = container.clientWidth;
+            const maxHeight = container.clientHeight;
+            
+            const scaleX = maxWidth / imageObj.width;
+            const scaleY = maxHeight / imageObj.height;
+            displayedScale = Math.min(scaleX, scaleY); // Fit Contain
+
+            canvas.width = imageObj.width * displayedScale;
+            canvas.height = imageObj.height * displayedScale;
+
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(imageObj, 0, 0, canvas.width, canvas.height);
+
+            // Update SVG Overlay dimensions
+            const svg = document.getElementById('overlay-svg');
+            svg.style.width = canvas.width + 'px';
+            svg.style.height = canvas.height + 'px';
+
+            updateOverlayGraphics();
+        }
+
+        // --- Interaction & Animation (SVG) ---
+        function updateOverlayGraphics() {
+            // Update polygon points
+            const polyString = cropPoints.map(p => 
+                `${p.x * displayedScale},${p.y * displayedScale}`
+            ).join(" ");
+            
+            document.getElementById('crop-polygon').setAttribute("points", polyString);
+
+            // Update Handles
             for(let i=0; i<4; i++) {
-                pts.push({ x: bestCnt.data32S[i*2]/scale, y: bestCnt.data32S[i*2+1]/scale });
+                const handle = document.getElementById('p'+i);
+                handle.setAttribute("cx", cropPoints[i].x * displayedScale);
+                handle.setAttribute("cy", cropPoints[i].y * displayedScale);
             }
-            state.currContour = pts;
-
-            // Dibujar Quad verde
-            ctxOv.beginPath();
-            ctxOv.lineWidth = 8;
-            ctxOv.strokeStyle = '#00ff00';
-            ctxOv.moveTo(pts[0].x, pts[0].y);
-            for(let i=1; i<4; i++) ctxOv.lineTo(pts[i].x, pts[i].y);
-            ctxOv.closePath();
-            ctxOv.stroke();
-            
-            // Relleno semi-transparente
-            ctxOv.fillStyle = 'rgba(0,255,0,0.2)';
-            ctxOv.fill();
-
-            bestCnt.delete();
-        } else {
-            state.currContour = null;
         }
 
-        // Limpieza de Memoria (CRÍTICO)
-        src.delete(); small.delete(); gray.delete(); binary.delete(); 
-        kernel.delete(); edges.delete(); contours.delete(); hierarchy.delete();
-
-        requestAnimationFrame(loop);
-    }
-
-    // --- CAPTURA ---
-    function capture() {
-        if (state.busy) return;
-        state.busy = true;
-
-        showMsg("Procesando...");
-        if (navigator.vibrate) navigator.vibrate(100);
-
-        setTimeout(() => {
-            let canvas = document.createElement('canvas');
-            canvas.width = video.videoWidth; canvas.height = video.videoHeight;
-            let ctx = canvas.getContext('2d');
-            ctx.drawImage(video, 0, 0);
-
-            let src = cv.imread(canvas);
-            let dst = new cv.Mat();
-
-            if (state.currContour) {
-                // WARP
-                let pts = sortPts(state.currContour);
-                let w = Math.max(dist(pts[0], pts[1]), dist(pts[2], pts[3]));
-                let h = Math.max(dist(pts[0], pts[3]), dist(pts[1], pts[2]));
-                
-                let srcTri = cv.matFromArray(4, 1, cv.CV_32FC2, [pts[0].x, pts[0].y, pts[1].x, pts[1].y, pts[2].x, pts[2].y, pts[3].x, pts[3].y]);
-                let dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [0,0, w,0, w,h, 0,h]);
-                let M = cv.getPerspectiveTransform(srcTri, dstTri);
-                
-                cv.warpPerspective(src, dst, M, new cv.Size(w, h));
-                srcTri.delete(); dstTri.delete(); M.delete();
-            } else {
-                src.copyTo(dst); // Foto normal si no detecta
-            }
-
-            // FILTER: Scan Effect
-            cv.cvtColor(dst, dst, cv.COLOR_RGBA2GRAY);
-            cv.adaptiveThreshold(dst, dst, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 15, 12);
-
-            cv.imshow(canvas, dst);
-            state.pages.push(canvas.toDataURL("image/jpeg", 0.8));
-            
-            // UI Update
-            let img = document.createElement('img');
-            img.src = canvas.toDataURL();
-            img.className = 'thumb new';
-            document.getElementById('gallery').appendChild(img);
-            document.getElementById('cnt').innerText = `(${state.pages.length})`;
-            setTimeout(() => img.classList.remove('new'), 300);
-
-            src.delete(); dst.delete();
-            state.busy = false;
-        }, 100);
-    }
-
-    function sortPts(pts) {
-        pts.sort((a,b) => a.y - b.y);
-        let t = pts.slice(0,2).sort((a,b) => a.x - b.x);
-        let b = pts.slice(2,4).sort((a,b) => a.x - b.x);
-        return [t[0], t[1], b[1], b[0]];
-    }
-    
-    function dist(p1, p2) { return Math.hypot(p1.x - p2.x, p1.y - p2.y); }
-
-    function toggleDebug() {
-        state.debugMode = !state.debugMode;
-        showMsg(state.debugMode ? "Debug: ON (Vista Binaria)" : "Debug: OFF");
-    }
-
-    async function makePDF() {
-        if(!state.pages.length) return alert("Sin páginas");
-        const { jsPDF } = window.jspdf;
-        const doc = new jsPDF();
+        // SVG Event Listeners for Dragging
+        const svgOverlay = document.getElementById('overlay-svg');
         
-        for(let i=0; i<state.pages.length; i++) {
-            let img = new Image(); img.src = state.pages[i];
-            await new Promise(r => img.onload = r);
-            let props = doc.getImageProperties(img);
-            let pH = (props.height * doc.internal.pageSize.getWidth()) / props.width;
-            if(i>0) doc.addPage();
-            doc.addImage(state.pages[i], 'JPEG', 0, 0, doc.internal.pageSize.getWidth(), pH);
+        svgOverlay.addEventListener('touchstart', handleStart, {passive: false});
+        svgOverlay.addEventListener('touchmove', handleMove, {passive: false});
+        svgOverlay.addEventListener('touchend', () => activeHandleIndex = -1);
+        
+        // Mouse support for desktop testing
+        svgOverlay.addEventListener('mousedown', handleStart);
+        svgOverlay.addEventListener('mousemove', handleMove);
+        svgOverlay.addEventListener('mouseup', () => activeHandleIndex = -1);
+
+        function handleStart(e) {
+            e.preventDefault();
+            const {x, y} = getEventCoords(e);
+            
+            // Find closest handle
+            let minDist = 1000;
+            cropPoints.forEach((p, i) => {
+                const px = p.x * displayedScale;
+                const py = p.y * displayedScale;
+                const dist = Math.hypot(px - x, py - y);
+                if (dist < 40) { // Hit radius
+                    if (dist < minDist) {
+                        minDist = dist;
+                        activeHandleIndex = i;
+                    }
+                }
+            });
         }
-        doc.save("Scan.pdf");
-    }
-</script>
+
+        function handleMove(e) {
+            if (activeHandleIndex === -1) return;
+            e.preventDefault();
+            const {x, y} = getEventCoords(e);
+            
+            // Update logic coord
+            cropPoints[activeHandleIndex].x = x / displayedScale;
+            cropPoints[activeHandleIndex].y = y / displayedScale;
+            
+            // Visual Update (Animation)
+            updateOverlayGraphics();
+        }
+
+        function getEventCoords(e) {
+            const svgRect = svgOverlay.getBoundingClientRect();
+            let clientX, clientY;
+            
+            if (e.touches && e.touches.length > 0) {
+                clientX = e.touches[0].clientX;
+                clientY = e.touches[0].clientY;
+            } else {
+                clientX = e.clientX;
+                clientY = e.clientY;
+            }
+            return {
+                x: clientX - svgRect.left,
+                y: clientY - svgRect.top
+            };
+        }
+
+        // --- Final Processing & Output ---
+        function processCrop() {
+            // Warp Perspective
+            let srcTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
+                cropPoints[0].x, cropPoints[0].y,
+                cropPoints[1].x, cropPoints[1].y,
+                cropPoints[2].x, cropPoints[2].y, // Note order in OpenCV might differ, adhering to sorted
+                cropPoints[3].x, cropPoints[3].y
+            ]);
+
+            // Calculate width/height of new doc
+            const w1 = Math.hypot(cropPoints[1].x - cropPoints[0].x, cropPoints[1].y - cropPoints[0].y);
+            const w2 = Math.hypot(cropPoints[2].x - cropPoints[3].x, cropPoints[2].y - cropPoints[3].y);
+            const h1 = Math.hypot(cropPoints[3].x - cropPoints[0].x, cropPoints[3].y - cropPoints[0].y);
+            const h2 = Math.hypot(cropPoints[2].x - cropPoints[1].x, cropPoints[2].y - cropPoints[1].y);
+            
+            const finalW = Math.max(w1, w2);
+            const finalH = Math.max(h1, h2);
+
+            let dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
+                0, 0,
+                finalW, 0,
+                finalW, finalH,
+                0, finalH
+            ]);
+
+            let M = cv.getPerspectiveTransform(srcTri, dstTri);
+            let dsize = new cv.Size(finalW, finalH);
+            let dst = new cv.Mat();
+            cv.warpPerspective(originalMat, dst, M, dsize, cv.INTER_LINEAR, cv.BORDER_CONSTANT, new cv.Scalar());
+
+            // Optional: Apply threshold (B&W filter)
+            // cv.cvtColor(dst, dst, cv.COLOR_RGBA2GRAY);
+            // cv.adaptiveThreshold(dst, dst, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 11, 2);
+
+            // Render Result to store
+            cv.imshow('hidden-canvas', dst);
+            const finalImage = document.getElementById('hidden-canvas').toDataURL('image/jpeg', 0.8);
+            
+            addPage(finalImage);
+            
+            // Clean up
+            srcTri.delete(); dstTri.delete(); M.delete(); dst.delete();
+            if(originalMat) originalMat.delete();
+        }
+
+        function addPage(imgData) {
+            scannedPages.push(imgData);
+            updateGallery();
+            switchView('view-home');
+        }
+
+        function updateGallery() {
+            const grid = document.getElementById('gallery-grid');
+            const empty = document.getElementById('empty-msg');
+            const counter = document.getElementById('page-counter');
+            
+            if (scannedPages.length > 0) empty.style.display = 'none';
+            else empty.style.display = 'block';
+
+            counter.innerText = `${scannedPages.length} Páginas`;
+            
+            // Simple re-render (in production, use append for performance)
+            grid.innerHTML = '';
+            grid.appendChild(empty); // keep ref
+            
+            scannedPages.forEach((src, idx) => {
+                const card = document.createElement('div');
+                card.className = 'thumb-card';
+                card.innerHTML = `<img src="${src}">`;
+                grid.appendChild(card);
+            });
+        }
+
+        function retakePhoto() {
+            if(originalMat) originalMat.delete();
+            startCamera();
+        }
+
+        // --- PDF Generation ---
+        function generatePDF() {
+            if (scannedPages.length === 0) {
+                alert("Escanea al menos una página.");
+                return;
+            }
+
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+
+            scannedPages.forEach((imgData, i) => {
+                if (i > 0) doc.addPage();
+                
+                const pageWidth = doc.internal.pageSize.getWidth();
+                const pageHeight = doc.internal.pageSize.getHeight();
+                
+                // Add Image scaling to fit A4
+                doc.addImage(imgData, 'JPEG', 0, 0, pageWidth, pageHeight, undefined, 'FAST');
+            });
+
+            doc.save('documento_escaneado.pdf');
+        }
+
+    </script>
 </body>
 </html>
