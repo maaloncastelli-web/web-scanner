@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Scanner Pro V2 - Real Time</title>
+    <script src="https://docs.opencv.org/4.7.0/opencv.js" async onload="onOpenCvReady();"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; margin: 0; background: #121212; color: white; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+        
+        /* Contenedor de Video y Overlay */
+        #camera-container { 
+            position: relative; 
+            flex: 1; 
+            width: 100%; 
+            background: #000; 
+            overflow: hidden; 
+        }
+        
+        video { 
+            width: 100%; 
+            height: 100%; 
+            object-fit: cover; 
+            display: block; 
+        }
+        
+        /* Canvas superpuesto para dibujar líneas verdes */
+        #canvasOverlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* Permite clicks a través */
+        }
+
+        /* Área de controles inferior */
+        #ui-layer {
+            background: #1e1e1e;
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            z-index: 10;
+        }
+
+        #gallery {
+            display: flex;
+            gap: 10px;
+            overflow-x: auto;
+            padding-bottom: 10px;
+            min-height: 80px;
+        }
+
+        .thumb-container { position: relative; }
+        .thumbnail { height: 80px; border-radius: 4px; border: 1px solid #444; }
+        .badge { position: absolute; top: -5px; right: -5px; background: red; color: white; border-radius: 50%; width: 20px; height: 20px; font-size: 12px; display: flex; align-items: center; justify-content: center; cursor: pointer;}
+
+        .controls { display: flex; justify-content: space-between; align-items: center; }
+
+        button {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 50px;
+            font-weight: bold;
+            font-size: 14px;
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .btn-capture { 
+            background: white; 
+            color: black; 
+            height: 60px; 
+            width: 60px; 
+            border-radius: 50%; 
+            border: 4px solid #ccc;
+            padding: 0; /* Override padding for circle */
+        }
+        .btn-capture:active { background: #ccc; transform: scale(0.95); }
+
+        .btn-action { background: #007bff; color: white; }
+        .btn-pdf { background: #28a745; color: white; }
+
+        /* Loader */
+        #loader {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8); z-index: 99;
+            display: flex; justify-content: center; align-items: center;
+            flex-direction: column;
+        }
+        .spinner { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin-bottom: 15px;}
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+<div id="loader">
+    <div class="spinner"></div>
+    <div id="status-text">Cargando Motor de Procesamiento...</div>
+</div>
+
+<div id="camera-container">
+    <video id="video" autoplay playsinline></video>
+    <canvas id="canvasOverlay"></canvas>
+</div>
+
+<div id="ui-layer">
+    <div id="gallery"></div>
+    <div class="controls">
+        <button class="btn-action" onclick="resetGallery()">Borrar</button>
+        <button class="btn-capture" onclick="triggerCapture()"></button>
+        <button class="btn-pdf" onclick="generatePDF()">Generar PDF <span id="count">(0)</span></button>
+    </div>
+</div>
+
+<canvas id="canvasProcess" style="display:none;"></canvas>
+
+<script>
+    let cvReady = false;
+    let video = document.getElementById('video');
+    let overlay = document.getElementById('canvasOverlay');
+    let ctxOverlay = overlay.getContext('2d');
+    
+    // Variables de estado
+    let stream = null;
+    let pages = [];
+    let isProcessing = false;
+    let currentContour = null; // Almacena el contorno detectado actual
+    
+    // Configuración de Downscaling para rendimiento
+    const PROCESS_WIDTH = 480; 
+
+    function onOpenCvReady() {
+        cvReady = true;
+        document.getElementById('status-text').innerText = "Iniciando Cámara...";
+        startCamera();
+    }
+
+    async function startCamera() {
+        try {
+            const constraints = {
+                video: {
+                    facingMode: 'environment',
+                    width: { ideal: 1920 },
+                    height: { ideal: 1080 }
+                }
+            };
+            stream = await navigator.mediaDevices.getUserMedia(constraints);
+            video.srcObject = stream;
+            video.onloadedmetadata = () => {
+                video.play();
+                document.getElementById('loader').style.display = 'none';
+                // Iniciar bucle de detección
+                requestAnimationFrame(processVideoFrame);
+            };
+        } catch (err) {
+            alert("Error de cámara: " + err.message);
+        }
+    }
+
+    // --- Bucle de Procesamiento en Tiempo Real ---
+    function processVideoFrame() {
+        if (!cvReady || video.paused || video.ended) {
+            requestAnimationFrame(processVideoFrame);
+            return;
+        }
+
+        // 1. Configurar dimensiones
+        const vidW = video.videoWidth;
+        const vidH = video.videoHeight;
+        overlay.width = vidW;
+        overlay.height = vidH;
+
+        // 2. Crear Mats (Matrices) para OpenCV
+        // Usamos un canvas oculto pequeño para procesar rápido
+        let cap = new cv.VideoCapture(video);
+        let src = new cv.Mat(vidH, vidW, cv.CV_8UC4);
+        cap.read(src); // Leer frame actual
+
+        let smallSrc = new cv.Mat();
+        let scale = PROCESS_WIDTH / vidW;
+        let smallHeight = vidH * scale;
+        
+        // Redimensionar para velocidad
+        cv.resize(src, smallSrc, new cv.Size(PROCESS_WIDTH, smallHeight));
+
+        // 3. Detectar Bordes (Pipeline)
+        let gray = new cv.Mat();
+        cv.cvtColor(smallSrc, gray, cv.COLOR_RGBA2GRAY);
+        cv.GaussianBlur(gray, gray, new cv.Size(5, 5), 0);
+        cv.Canny(gray, gray, 75, 200);
+
+        // 4. Encontrar Contornos
+        let contours = new cv.MatVector();
+        let hierarchy = new cv.Mat();
+        cv.findContours(gray, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+        // 5. Filtrar el mejor cuadrilátero
+        let maxArea = 0;
+        let bestApprox = null;
+
+        for (let i = 0; i < contours.size(); ++i) {
+            let cnt = contours.get(i);
+            let area = cv.contourArea(cnt);
+            if (area > 5000) { // area minima en la imagen pequeña
+                let peri = cv.arcLength(cnt, true);
+                let approx = new cv.Mat();
+                cv.approxPolyDP(cnt, approx, 0.02 * peri, true);
+                
+                if (approx.rows === 4 && area > maxArea) {
+                    maxArea = area;
+                    if(bestApprox) bestApprox.delete();
+                    bestApprox = approx; // Mantener referencia
+                } else {
+                    approx.delete();
+                }
+            }
+        }
+
+        // 6. Dibujar en Overlay (Escalando de vuelta al tamaño original)
+        ctxOverlay.clearRect(0, 0, vidW, vidH);
+        
+        if (bestApprox) {
+            // Guardamos este contorno escalado para usarlo al capturar
+            // Necesitamos convertir coordinates de smallSrc a src original
+            let pts = [];
+            for(let i=0; i<4; i++) {
+                pts.push({
+                    x: bestApprox.data32S[i*2] / scale,
+                    y: bestApprox.data32S[i*2+1] / scale
+                });
+            }
+            
+            // Actualizar variable global para el botón de captura
+            currentContour = pts;
+
+            // Dibujar línea visual
+            ctxOverlay.beginPath();
+            ctxOverlay.lineWidth = 5;
+            ctxOverlay.strokeStyle = '#00ff00';
+            ctxOverlay.moveTo(pts[0].x, pts[0].y);
+            for(let i=1; i<4; i++) ctxOverlay.lineTo(pts[i].x, pts[i].y);
+            ctxOverlay.closePath();
+            ctxOverlay.stroke();
+            
+            bestApprox.delete();
+        } else {
+            currentContour = null;
+        }
+
+        // Limpieza Memoria
+        src.delete(); smallSrc.delete(); gray.delete(); 
+        contours.delete(); hierarchy.delete();
+
+        // Loop
+        requestAnimationFrame(processVideoFrame);
+    }
+
+    // --- Captura y Procesamiento Final ---
+    function triggerCapture() {
+        if (!currentContour) {
+            // Si no detecta, toma la foto completa
+             let canvas = document.createElement('canvas');
+             canvas.width = video.videoWidth;
+             canvas.height = video.videoHeight;
+             canvas.getContext('2d').drawImage(video, 0, 0);
+             processAndSave(cv.imread(canvas));
+             return;
+        }
+
+        // Tomar frame completo
+        let canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        canvas.getContext('2d').drawImage(video, 0, 0);
+        let src = cv.imread(canvas);
+
+        // Preparar coordenadas para Warp
+        // Ordenar puntos: TL, TR, BR, BL
+        let pts = currentContour;
+        pts.sort((a,b) => a.y - b.y);
+        let top = pts.slice(0,2).sort((a,b) => a.x - b.x);
+        let bottom = pts.slice(2,4).sort((a,b) => a.x - b.x);
+        let ordered = [top[0], top[1], bottom[1], bottom[0]];
+
+        let widthA = Math.hypot(ordered[2].x - ordered[3].x, ordered[2].y - ordered[3].y);
+        let widthB = Math.hypot(ordered[1].x - ordered[0].x, ordered[1].y - ordered[0].y);
+        let maxWidth = Math.max(widthA, widthB);
+
+        let heightA = Math.hypot(ordered[1].x - ordered[2].x, ordered[1].y - ordered[2].y);
+        let heightB = Math.hypot(ordered[0].x - ordered[3].x, ordered[0].y - ordered[3].y);
+        let maxHeight = Math.max(heightA, heightB);
+
+        let srcTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
+            ordered[0].x, ordered[0].y, ordered[1].x, ordered[1].y,
+            ordered[2].x, ordered[2].y, ordered[3].x, ordered[3].y
+        ]);
+        let dstTri = cv.matFromArray(4, 1, cv.CV_32FC2, [
+            0, 0, maxWidth, 0, maxWidth, maxHeight, 0, maxHeight
+        ]);
+
+        let M = cv.getPerspectiveTransform(srcTri, dstTri);
+        let dst = new cv.Mat();
+        cv.warpPerspective(src, dst, M, new cv.Size(maxWidth, maxHeight));
+
+        // Aplicar Efecto Fotocopia
+        applyPhotocopyEffect(dst);
+
+        src.delete(); srcTri.delete(); dstTri.delete(); M.delete();
+    }
+
+    function applyPhotocopyEffect(mat) {
+        // 1. A Escala de Grises
+        cv.cvtColor(mat, mat, cv.COLOR_RGBA2GRAY);
+        
+        // 2. Umbral Adaptativo (Adaptive Threshold)
+        // Esto es la magia de la "fotocopia": calcula el umbral localmente
+        // param 1: src, 2: dst, 3: maxVal, 4: metodo adaptativo, 5: tipo umbral, 6: block size, 7: constante
+        cv.adaptiveThreshold(mat, mat, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 15, 10);
+
+        processAndSave(mat);
+    }
+
+    function processAndSave(mat) {
+        // Mostrar en canvas temporal para exportar a base64
+        let canvas = document.createElement('canvas');
+        cv.imshow(canvas, mat);
+        let imgData = canvas.toDataURL('image/jpeg', 0.8);
+        
+        // Agregar a la galería
+        pages.push(imgData);
+        updateGalleryUI();
+        
+        mat.delete(); // Limpiar
+        
+        // Animación visual de captura
+        video.style.opacity = 0.5;
+        setTimeout(() => video.style.opacity = 1, 100);
+    }
+
+    // --- UI y PDF ---
+    function updateGalleryUI() {
+        let gal = document.getElementById('gallery');
+        let count = document.getElementById('count');
+        gal.innerHTML = '';
+        
+        pages.forEach((src, idx) => {
+            let div = document.createElement('div');
+            div.className = 'thumb-container';
+            div.innerHTML = `<img src="${src}" class="thumbnail"><div class="badge" onclick="removePage(${idx})">x</div>`;
+            gal.appendChild(div);
+        });
+        
+        count.innerText = `(${pages.length})`;
+        // Scroll al final
+        gal.scrollLeft = gal.scrollWidth;
+    }
+
+    function removePage(idx) {
+        pages.splice(idx, 1);
+        updateGalleryUI();
+    }
+
+    function resetGallery() {
+        if(confirm("¿Borrar todo?")) {
+            pages = [];
+            updateGalleryUI();
+        }
+    }
+
+    async function generatePDF() {
+        if (pages.length === 0) return alert("Escanea algo primero.");
+        
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+
+        for (let i = 0; i < pages.length; i++) {
+            let imgData = pages[i];
+            let img = new Image();
+            img.src = imgData;
+            await new Promise(r => img.onload = r);
+
+            let imgProps = doc.getImageProperties(imgData);
+            let pdfWidth = doc.internal.pageSize.getWidth();
+            let pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+
+            if (i > 0) doc.addPage();
+            doc.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
+        }
+        doc.save(`Scanner_${new Date().toISOString().slice(0,10)}.pdf`);
+    }
+</script>
+</body>
+</html>
